@@ -2,10 +2,10 @@ from django.db import models
 
 class RoomData(models.Model):
     room_name = models.CharField(max_length=100)
-    power_usage = models.FloatField(help_text="Power usage in watts")
-    temperature = models.FloatField(help_text="Temperature in Celsius")
-    light_intensity = models.FloatField(help_text="Light intensity in lumens")
-    
+    temperature = models.FloatField()
+    light_intensity = models.FloatField()
+    power_usage = models.FloatField()
+    timestamp = models.DateTimeField(auto_now_add=True)  # Add this line
 
     def __str__(self):
-        return f"{self.room_name} - {self.timestamp}"
+        return self.room_name

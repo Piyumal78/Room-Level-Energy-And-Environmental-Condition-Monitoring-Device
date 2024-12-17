@@ -7,10 +7,34 @@ from .serializers import RoomDataSerializer
 
 
 class RoomDataList(APIView):
+    # def get(self, request):
+    #     data = RoomData.objects.all().order_by('-timestamp')
+    #     serializer = RoomDataSerializer(data, many=True)
+    #     return Response(serializer.data)
+
     def get(self, request):
-        data = RoomData.objects.all().order_by('-timestamp')
-        serializer = RoomDataSerializer(data, many=True)
-        return Response(serializer.data)
+    # Sample data to simulate the response with additional fields
+        sample_data = [
+        {
+            "id": 1,
+            "room_name": "Living Room",
+            "temperature": 24.5,  # Temperature in Celsius
+            "humidity": 60,  # Humidity percentage
+            "power": 150.0,  # Power consumption in watts
+            "lux_light_intensity": 350,  # Light intensity in lux
+            "timestamp": "2024-04-27T14:30:15Z"  # Timestamp in ISO 8601 format
+        },
+        {
+            "id": 2,
+            "room_name": "Bedroom",
+            "temperature": 22.0,  # Temperature in Celsius
+            "humidity": 55,  # Humidity percentage
+            "power": 100.0,  # Power consumption in watts
+            "lux_light_intensity": 500,  # Light intensity in lux
+            "timestamp": "2024-04-27T14:35:20Z"  # Timestamp in ISO 8601 format
+        }
+    ]
+        return Response(sample_data, status=status.HTTP_200_OK)
 
     def post(self, request):
         serializer = RoomDataSerializer(data=request.data)
