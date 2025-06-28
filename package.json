@@ -1,0 +1,17 @@
+{
+  "name": "audit-sys-backend-main-main",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"cd audit-sys-backend-main-main && npm run dev\" \"cd CreativeProjectFrontend && npm run dev\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "description": "",
+  "dependencies": {
+    "concurrency": "^0.1.4",
+    "concurrently": "^9.2.0"
+  }
+}
