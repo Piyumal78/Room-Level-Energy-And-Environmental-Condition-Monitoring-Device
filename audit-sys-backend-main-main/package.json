@@ -1,0 +1,46 @@
+{
+  "name": "audit_system_backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sandu70one/audit_system_backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Sandu70one/audit_system_backend/issues"
+  },
+  "homepage": "https://github.com/Sandu70one/audit_system_backend#readme",
+  "dependencies": {
+    "@firebase/firestore": "^4.7.16",
+    "axios": "^1.9.0",
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "firebase": "^11.8.1",
+    "firebase-admin": "^13.4.0",
+    "nodemailer": "^7.0.3",
+    "pdfkit": "^0.17.1"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.26.4",
+    "@babel/core": "^7.26.0",
+    "@babel/node": "^7.26.0",
+    "@babel/preset-env": "^7.26.0",
+    "nodemon": "^3.1.9"
+  },
+  "message": "Annual report generated successfully",
+  "report": {
+    "filePath": "annual_report_2024.pdf"
+  }
+}
