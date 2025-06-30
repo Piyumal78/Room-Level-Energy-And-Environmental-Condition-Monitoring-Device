@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react"
 import axios from "axios"
 import { Bar, Line } from "react-chartjs-2"
 import "chart.js/auto"
@@ -23,10 +23,10 @@ import {
   LineChart,
   PieChart,
   Lightbulb,
+  Loader2,
 } from "lucide-react"
-import { ref, get } from "firebase/database";
-import { collection, query, orderBy, limit, onSnapshot, getDocs } from "firebase/firestore";
-import { db } from "../config/firebase";
+import { collection, query, where, orderBy, limit, onSnapshot, getDocs, Timestamp } from "firebase/firestore"
+import { db } from "../config/firebase"
 
 function EnergyAuditDashboard() {
   // State for year and month selection
@@ -35,21 +35,41 @@ function EnergyAuditDashboard() {
   const [activeTab, setActiveTab] = useState("weekly")
   const [showPopup, setShowPopup] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [annualReport, setAnnualReport] = useState(null)
 
-  // Mock real-time data - replace with your actual data
+  // Real-time data states
   const [environmentalData, setEnvironmentalData] = useState([])
-  const [humidity, setHumidity] = useState([])
-  const [temperature, setTemperature] = useState([])
-  const [lightIntensity, setLightIntensity] = useState([])
-  const [power, setPower] = useState([])
+  const [humidity, setHumidity] = useState([0])
+  const [temperature, setTemperature] = useState([0])
+  const [lightIntensity, setLightIntensity] = useState([0])
+  const [power, setPower] = useState([0])
 
-  // Mock data for charts - replace with your actual data
-  const [weeklyAverageOfEachMonth, setWeeklyAverageOfEachMonth] = useState([])
-  const [weeklyAverageOfPowerData, setWeeklyAverageOfPowerData] = useState([])
-  const [monthlyAveragesOfEachMonth, setMonthlyAveragesOfEachMonth] = useState([])
-  const [monthlyAverageOfPowerData, setMonthlyAverageOfPowerData] = useState([])
-  
+  // Historical data states
+  const [weeklyData, setWeeklyData] = useState({
+    week1: { Humidity: 0, Temperature: 0, Power: 0, Light: 0 },
+    week2: { Humidity: 0, Temperature: 0, Power: 0, Light: 0 },
+    week3: { Humidity: 0, Temperature: 0, Power: 0, Light: 0 },
+    week4: { Humidity: 0, Temperature: 0, Power: 0, Light: 0 },
+  })
+
+  const [monthlyData, setMonthlyData] = useState({
+    Jan: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Feb: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Mar: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Apr: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    May: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Jun: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Jul: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Aug: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Sep: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Oct: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Nov: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+    Dec: { Temperature: 0, Humidity: 0, Power: 0, Light: 0 },
+  })
+
+  // Loading states
+  const [dataLoading, setDataLoading] = useState(false)
+  const [realTimeConnected, setRealTimeConnected] = useState(false)
+
   // Analytics data states
   const [analyticsData, setAnalyticsData] = useState({
     efficiencyScore: 0,
@@ -61,260 +81,388 @@ function EnergyAuditDashboard() {
     envDataCount: 0,
     avgPower: 0,
     avgTemp: 0,
-    avgHumidity: 0
+    avgHumidity: 0,
   })
 
-  useEffect(() => {
-    const annualEnergyReport = async () => {
-      try {
-        console.log("Year:", year, "Month:", month);
-        const response = await axios.get("http://localhost:3000/events", {
-          params: { year, month },
-        });
-        console.log(response.data);
-        setAnnualReport(response.data);
-        setMonthlyAveragesOfEachMonth(response.data.monthlyAveragesOfEachMonth);
-        setWeeklyAverageOfEachMonth(response.data.weeklyAverages);
-        setWeeklyAverageOfPowerData(response.data.powerWeeklyAverages);
-        setMonthlyAverageOfPowerData(
-          response.data.powerMonthlyAveragesOfEachMonth
-        );
-      } catch (error) {
-        console.error("Error fetching data:", error);
-        if (error.response?.data) {
-          console.log(error.response.data);
+  // Helper function to safely get field value with multiple possible field names
+  const getFieldValue = (item, fieldNames, defaultValue = 0) => {
+    for (const fieldName of fieldNames) {
+      if (item[fieldName] !== undefined && item[fieldName] !== null) {
+        return Number(item[fieldName]) || defaultValue
+      }
+    }
+    return defaultValue
+  }
+
+  // Helper function to convert Firestore timestamp to Date
+  const convertTimestamp = (timestamp) => {
+    if (!timestamp) return new Date()
+    if (timestamp.toDate) return timestamp.toDate()
+    if (timestamp.seconds) return new Date(timestamp.seconds * 1000)
+    return new Date(timestamp)
+  }
+
+  // Fetch data from Every2Second collection with improved error handling
+  const fetchEvery2SecondData = async (startDate, endDate) => {
+    try {
+      console.log("Fetching Every2Second data from:", startDate.toISOString(), "to:", endDate.toISOString())
+
+      // Try different timestamp field names
+      const timestampFields = ["timestamp", "Timestamp", "createdAt", "date"]
+      let data = []
+
+      for (const timestampField of timestampFields) {
+        try {
+          const q = query(
+            collection(db, "Every2Second"),
+            where(timestampField, ">=", Timestamp.fromDate(startDate)),
+            where(timestampField, "<=", Timestamp.fromDate(endDate)),
+            orderBy(timestampField, "desc"),
+            limit(50000),
+          )
+
+          const querySnapshot = await getDocs(q)
+          data = []
+          querySnapshot.forEach((doc) => {
+            const docData = doc.data()
+            data.push({
+              id: doc.id,
+              ...docData,
+              timestamp: convertTimestamp(docData[timestampField]),
+            })
+          })
+
+          if (data.length > 0) {
+            console.log(`Successfully fetched ${data.length} records using ${timestampField} field`)
+            break
+          }
+        } catch (error) {
+          console.log(`Failed to query with ${timestampField}:`, error.message)
+          continue
         }
       }
-    };
 
-    annualEnergyReport();
-  }, [year, month]);
+      return data.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    } catch (error) {
+      console.error("Error fetching Every2Second data:", error)
+      return []
+    }
+  }
 
-  useEffect(() => {
-    async function fetchRealTimeEnvData() {
-      try {
-        // reference to collection
-        const environmentalDataCollection = collection(db, "collection1");
-        const powerDataCollection = collection(db, "Every2Seconds");
+  // Process weekly data with improved field handling
+  const processWeeklyData = (data) => {
+    const weeklyData = {}
+    const now = new Date()
 
-        // latest document
-        const latestEnvDocQuery = query(
-          environmentalDataCollection,
-          orderBy("Timestamp", "desc"),
-          limit(1)
-        );
+    for (let i = 0; i < 4; i++) {
+      const weekStart = new Date(now.getTime() - (i + 1) * 7 * 24 * 60 * 60 * 1000)
+      const weekEnd = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000)
 
-        const latestPowerDocQuery = query(
-          powerDataCollection,
-          orderBy("Timestamp", "desc"),
-          limit(1)
-        );
+      const weekData = data.filter((item) => {
+        const itemDate = new Date(item.timestamp)
+        return itemDate >= weekStart && itemDate < weekEnd
+      })
 
-        // Set up a real-time listener for environmental data
-        const unsubscribeEnv = onSnapshot(latestEnvDocQuery, (snapshot) => {
-          if (snapshot.docChanges().length > 0) {
-            if (snapshot.empty) {
-              console.log("No matching documents.");
-            } else {
-              const envList = snapshot.docs
-                .filter((doc) => doc.exists()) // Filter out deleted documents
-                .map((doc) => ({
-                  id: doc.id,
-                  ...doc.data(),
-                }));
-              setEnvironmentalData(envList);
-              setHumidity(envList.map((user) => user.Humidity));
-              setTemperature(envList.map((user) => user.Temperature));
-              setLightIntensity(envList.map((user) => user.Light));
-              // console.log("Fetched environmental document:", envList);
-            }
-          }
-        });
-
-        // Set up a real-time listener for power data
-        const unsubscribePower = onSnapshot(latestPowerDocQuery, (snapshot) => {
-          if (snapshot.empty) {
-            console.log("No matching documents.");
-          } else {
-            const powerList = snapshot.docs
-              .filter((doc) => doc.exists()) // Filter out deleted documents
-              .map((doc) => ({
-                id: doc.id,
-                ...doc.data(),
-              }));
-            setPower(powerList.map((user) => user.Power));
-            // console.log("Fetched power document:", powerList);
-          }
-        });
-
-        // Clean the listeners on component unmount
-        return () => {
-          unsubscribeEnv();
-          unsubscribePower();
-        };
-      } catch (error) {
-        console.error("Error fetching data:", error);
+      if (weekData.length > 0) {
+        weeklyData[`week${4 - i}`] = {
+          Temperature:
+            weekData.reduce((sum, item) => sum + getFieldValue(item, ["Temperature", "temperature", "temp"]), 0) /
+            weekData.length,
+          Humidity:
+            weekData.reduce((sum, item) => sum + getFieldValue(item, ["Humidity", "humidity", "hum"]), 0) /
+            weekData.length,
+          Power:
+            weekData.reduce((sum, item) => sum + getFieldValue(item, ["Power", "power", "watt", "watts"]), 0) /
+            weekData.length,
+          Light:
+            weekData.reduce((sum, item) => sum + getFieldValue(item, ["Light", "light", "lightIntensity", "lux"]), 0) /
+            weekData.length,
+        }
+      } else {
+        weeklyData[`week${4 - i}`] = { Temperature: 0, Humidity: 0, Power: 0, Light: 0 }
       }
     }
 
-    fetchRealTimeEnvData();
-  }, []);
+    return weeklyData
+  }
+
+  // Process monthly data with improved field handling
+  const processMonthlyData = (data) => {
+    const monthlyData = {}
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    for (let month = 0; month < 12; month++) {
+      const monthData = data.filter((item) => {
+        const itemDate = new Date(item.timestamp)
+        return itemDate.getMonth() === month && itemDate.getFullYear() === year
+      })
+
+      if (monthData.length > 0) {
+        monthlyData[monthNames[month]] = {
+          Temperature:
+            monthData.reduce((sum, item) => sum + getFieldValue(item, ["Temperature", "temperature", "temp"]), 0) /
+            monthData.length,
+          Humidity:
+            monthData.reduce((sum, item) => sum + getFieldValue(item, ["Humidity", "humidity", "hum"]), 0) /
+            monthData.length,
+          Power:
+            monthData.reduce((sum, item) => sum + getFieldValue(item, ["Power", "power", "watt", "watts"]), 0) /
+            monthData.length,
+          Light:
+            monthData.reduce((sum, item) => sum + getFieldValue(item, ["Light", "light", "lightIntensity", "lux"]), 0) /
+            monthData.length,
+        }
+      } else {
+        monthlyData[monthNames[month]] = { Temperature: 0, Humidity: 0, Power: 0, Light: 0 }
+      }
+    }
+
+    return monthlyData
+  }
+
+  // Real-time data listener with improved error handling
+  useEffect(() => {
+    let unsubscribe = null
+
+    const setupRealTimeListener = async () => {
+      try {
+        // Try collection1 first
+        const collection1Ref = collection(db, "collection1")
+        const latestQuery = query(collection1Ref, orderBy("Timestamp", "desc"), limit(1))
+
+        unsubscribe = onSnapshot(
+          latestQuery,
+          (snapshot) => {
+            if (!snapshot.empty) {
+              const latestData = snapshot.docs[0].data()
+              setEnvironmentalData([latestData])
+              setHumidity([getFieldValue(latestData, ["Humidity", "humidity", "hum"])])
+              setTemperature([getFieldValue(latestData, ["Temperature", "temperature", "temp"])])
+              setLightIntensity([getFieldValue(latestData, ["Light", "light", "lightIntensity", "lux"])])
+              setPower([getFieldValue(latestData, ["Power", "power", "watt", "watts"])])
+              setRealTimeConnected(true)
+              console.log("Real-time data updated from collection1:", latestData)
+            } else {
+              // Fallback to Every2Second collection
+              console.log("No data in collection1, trying Every2Second...")
+              setupFallbackListener()
+            }
+          },
+          (error) => {
+            console.error("Error in collection1 listener:", error)
+            setupFallbackListener()
+          },
+        )
+      } catch (error) {
+        console.error("Error setting up collection1 listener:", error)
+        setupFallbackListener()
+      }
+    }
+
+    const setupFallbackListener = () => {
+      try {
+        const every2SecondRef = collection(db, "Every2Second")
+        const fallbackQuery = query(every2SecondRef, orderBy("timestamp", "desc"), limit(1))
+
+        const fallbackUnsubscribe = onSnapshot(
+          fallbackQuery,
+          (snapshot) => {
+            if (!snapshot.empty) {
+              const latestData = snapshot.docs[0].data()
+              setEnvironmentalData([latestData])
+              setHumidity([getFieldValue(latestData, ["Humidity", "humidity", "hum"])])
+              setTemperature([getFieldValue(latestData, ["Temperature", "temperature", "temp"])])
+              setLightIntensity([getFieldValue(latestData, ["Light", "light", "lightIntensity", "lux"])])
+              setPower([getFieldValue(latestData, ["Power", "power", "watt", "watts"])])
+              setRealTimeConnected(true)
+              console.log("Real-time data updated from Every2Second:", latestData)
+            }
+          },
+          (error) => {
+            console.error("Error in Every2Second fallback listener:", error)
+            setRealTimeConnected(false)
+          },
+        )
+
+        unsubscribe = fallbackUnsubscribe
+      } catch (error) {
+        console.error("Error setting up fallback listener:", error)
+        setRealTimeConnected(false)
+      }
+    }
+
+    setupRealTimeListener()
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe()
+      }
+    }
+  }, [])
+
+  // Fetch historical data for charts
+  useEffect(() => {
+    const fetchHistoricalData = async () => {
+      setDataLoading(true)
+      try {
+        console.log("Fetching historical data for charts...")
+
+        // Get date ranges
+        const now = new Date()
+        const startOfMonth = new Date(year, month - 1, 1)
+        const endOfMonth = new Date(year, month, 0, 23, 59, 59)
+        const startOfYear = new Date(year, 0, 1)
+        const endOfYear = new Date(year, 11, 31, 23, 59, 59)
+
+        // Fetch data for weekly and monthly analysis
+        const [weeklyRawData, monthlyRawData] = await Promise.all([
+          fetchEvery2SecondData(startOfMonth, endOfMonth),
+          fetchEvery2SecondData(startOfYear, endOfYear),
+        ])
+
+        console.log("Historical data fetched:", {
+          weeklyCount: weeklyRawData.length,
+          monthlyCount: monthlyRawData.length,
+        })
+
+        // Process data
+        const processedWeeklyData = processWeeklyData(weeklyRawData)
+        const processedMonthlyData = processMonthlyData(monthlyRawData)
+
+        setWeeklyData(processedWeeklyData)
+        setMonthlyData(processedMonthlyData)
+
+        console.log("Processed data:", { weekly: processedWeeklyData, monthly: processedMonthlyData })
+      } catch (error) {
+        console.error("Error fetching historical data:", error)
+      } finally {
+        setDataLoading(false)
+      }
+    }
+
+    fetchHistoricalData()
+  }, [year, month])
 
   // Analytics calculations
   useEffect(() => {
     const calculateAnalytics = async () => {
       try {
-        setAnalyticsData(prev => ({ ...prev, isLoading: true }))
-        
-        // Fetch historical data for analysis (last 30 days)
+        setAnalyticsData((prev) => ({ ...prev, isLoading: true }))
+
+        // Get last 30 days of data for analytics
         const endDate = new Date()
         const startDate = new Date()
         startDate.setDate(startDate.getDate() - 30)
-        
-        const envDataCollection = collection(db, "collection1")
-        const powerDataCollection = collection(db, "Every2Seconds")
-        
-        // Query last 30 days of data
-        const envQuery = query(
-          envDataCollection,
-          orderBy("Timestamp", "desc"),
-          limit(1000) // Adjust based on your data volume
-        )
-        
-        const powerQuery = query(
-          powerDataCollection,
-          orderBy("Timestamp", "desc"),
-          limit(1000)
-        )
-        
-        const [envSnapshot, powerSnapshot] = await Promise.all([
-          getDocs(envQuery),
-          getDocs(powerQuery)
-        ])
-        
-        const envData = envSnapshot.docs.map(doc => ({
-          ...doc.data(),
-          timestamp: doc.data().Timestamp
-        }))
-        
-        const powerData = powerSnapshot.docs.map(doc => ({
-          ...doc.data(),
-          timestamp: doc.data().Timestamp
-        }))
-        
-        // Filter data for last 30 days
-        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000)
-        const recentEnvData = envData.filter(item => {
-          const itemTime = new Date(item.timestamp).getTime()
-          return itemTime >= thirtyDaysAgo
-        })
-        
-        const recentPowerData = powerData.filter(item => {
-          const itemTime = new Date(item.timestamp).getTime()
-          return itemTime >= thirtyDaysAgo
-        })
-        
-        // Calculate analytics
-        const avgPower = recentPowerData.length > 0 ? 
-          recentPowerData.reduce((sum, item) => sum + (item.Power || 0), 0) / recentPowerData.length : 0
-        const avgTemp = recentEnvData.length > 0 ? 
-          recentEnvData.reduce((sum, item) => sum + (item.Temperature || 0), 0) / recentEnvData.length : 0
-        const avgHumidity = recentEnvData.length > 0 ? 
-          recentEnvData.reduce((sum, item) => sum + (item.Humidity || 0), 0) / recentEnvData.length : 0
-        
-        console.log("Analytics calculation:", { avgPower, avgTemp, avgHumidity, powerDataCount: recentPowerData.length, envDataCount: recentEnvData.length })
-        
-        // Efficiency Score Calculation (0-100%)
-        let efficiencyScore = 100
-        
-        // Power efficiency (lower is better)
-        if (avgPower > 150) efficiencyScore -= 30
-        else if (avgPower > 100) efficiencyScore -= 15
-        
-        // Temperature efficiency (optimal range 20-24°C)
-        if (avgTemp < 18 || avgTemp > 26) efficiencyScore -= 20
-        else if (avgTemp < 20 || avgTemp > 24) efficiencyScore -= 10
-        
-        // Humidity efficiency (optimal range 40-60%)
-        if (avgHumidity < 30 || avgHumidity > 70) efficiencyScore -= 20
-        else if (avgHumidity < 40 || avgHumidity > 60) efficiencyScore -= 10
-        
-        efficiencyScore = Math.max(0, Math.min(100, efficiencyScore))
-        
-        // Environmental Impact Calculations
-        const baselinePower = 200 // Baseline power consumption (watts)
-        const powerSaved = Math.max(0, baselinePower - avgPower)
-        const energySaved = (powerSaved * 24 * 30) / 1000 // kWh for 30 days
-        const co2Saved = energySaved * 0.5 // kg CO2 per kWh (average)
-        const costSavings = energySaved * 0.12 // $0.12 per kWh (average rate)
-        
-        setAnalyticsData({
-          efficiencyScore: Math.round(efficiencyScore),
-          co2Saved: co2Saved.toFixed(1),
-          energySaved: energySaved.toFixed(1),
-          costSavings: costSavings.toFixed(2),
-          powerDataCount: recentPowerData.length,
-          envDataCount: recentEnvData.length,
-          avgPower: avgPower.toFixed(1),
-          avgTemp: avgTemp.toFixed(1),
-          avgHumidity: avgHumidity.toFixed(1),
-          isLoading: false
-        })
-        
+
+        const analyticsData = await fetchEvery2SecondData(startDate, endDate)
+
+        if (analyticsData.length > 0) {
+          const avgPower =
+            analyticsData.reduce((sum, item) => sum + getFieldValue(item, ["Power", "power", "watt", "watts"]), 0) /
+            analyticsData.length
+          const avgTemp =
+            analyticsData.reduce((sum, item) => sum + getFieldValue(item, ["Temperature", "temperature", "temp"]), 0) /
+            analyticsData.length
+          const avgHumidity =
+            analyticsData.reduce((sum, item) => sum + getFieldValue(item, ["Humidity", "humidity", "hum"]), 0) /
+            analyticsData.length
+
+          // Calculate efficiency score
+          let efficiencyScore = 100
+          if (avgPower > 150) efficiencyScore -= 30
+          else if (avgPower > 100) efficiencyScore -= 15
+
+          if (avgTemp < 18 || avgTemp > 26) efficiencyScore -= 20
+          else if (avgTemp < 20 || avgTemp > 24) efficiencyScore -= 10
+
+          if (avgHumidity < 30 || avgHumidity > 70) efficiencyScore -= 20
+          else if (avgHumidity < 40 || avgHumidity > 60) efficiencyScore -= 10
+
+          efficiencyScore = Math.max(0, Math.min(100, efficiencyScore))
+
+          // Calculate environmental impact
+          const baselinePower = 200
+          const powerSaved = Math.max(0, baselinePower - avgPower)
+          const energySaved = (powerSaved * 24 * 30) / 1000
+          const co2Saved = energySaved * 0.5
+          const costSavings = energySaved * 0.12
+
+          setAnalyticsData({
+            efficiencyScore: Math.round(efficiencyScore),
+            co2Saved: co2Saved.toFixed(1),
+            energySaved: energySaved.toFixed(1),
+            costSavings: costSavings.toFixed(2),
+            powerDataCount: analyticsData.length,
+            envDataCount: analyticsData.length,
+            avgPower: avgPower.toFixed(1),
+            avgTemp: avgTemp.toFixed(1),
+            avgHumidity: avgHumidity.toFixed(1),
+            isLoading: false,
+          })
+        } else {
+          setAnalyticsData((prev) => ({ ...prev, isLoading: false }))
+        }
       } catch (error) {
         console.error("Error calculating analytics:", error)
-        setAnalyticsData(prev => ({ 
-          ...prev, 
-          isLoading: false,
-          efficiencyScore: 0,
-          co2Saved: "0.0",
-          energySaved: "0.0",
-          costSavings: "0.00"
-        }))
+        setAnalyticsData((prev) => ({ ...prev, isLoading: false }))
       }
     }
-    
-    // Run analytics calculation when we have data or when dependencies change
-    calculateAnalytics()
-  }, [power, temperature, humidity, year, month])
 
-  // Fetch data from backend on mount and refresh
-  const fetchData = async () => {
-  setIsRefreshing(true)
-  try {
-    const res = await axios.get("http://localhost:3000/latest")
-    setTemperature([res.data.temperature])
-    setHumidity([res.data.humidity])
-    setLightIntensity([res.data.lightIntensity])
-    setPower([res.data.power])
-    setEnvironmentalData([res.data.environmentalData])
-  } catch (error) {
-    console.error("Error fetching data from backend:", error)
-  }
-  setIsRefreshing(false)
-}
-  // Simulate data refresh
+    calculateAnalytics()
+  }, [year, month])
+
+  // Manual refresh function
   const handleRefresh = async () => {
     setIsRefreshing(true)
     try {
-      // Example: adjust "latest/environmentalData" etc. to your actual Firebase paths
-      const tempSnap = await get(ref(database, "latest/temperature"))
-      const humiditySnap = await get(ref(database, "latest/humidity"))
-      const lightSnap = await get(ref(database, "latest/lightIntensity"))
-      const powerSnap = await get(ref(database, "latest/power"))
-      const envSnap = await get(ref(database, "latest/environmentalData"))
+      // Trigger re-fetch of historical data
+      const now = new Date()
+      const startOfMonth = new Date(year, month - 1, 1)
+      const endOfMonth = new Date(year, month, 0, 23, 59, 59)
+      const startOfYear = new Date(year, 0, 1)
+      const endOfYear = new Date(year, 11, 31, 23, 59, 59)
 
-      setTemperature([tempSnap.val()])
-      setHumidity([humiditySnap.val()])
-      setLightIntensity([lightSnap.val()])
-      setPower([powerSnap.val()])
-      setEnvironmentalData(
-        envSnap.exists() ? [envSnap.val()] : [{ Timestamp: new Date().toISOString() }]
-      )
+      const [weeklyRawData, monthlyRawData] = await Promise.all([
+        fetchEvery2SecondData(startOfMonth, endOfMonth),
+        fetchEvery2SecondData(startOfYear, endOfYear),
+      ])
+
+      const processedWeeklyData = processWeeklyData(weeklyRawData)
+      const processedMonthlyData = processMonthlyData(monthlyRawData)
+
+      setWeeklyData(processedWeeklyData)
+      setMonthlyData(processedMonthlyData)
+
+      console.log("Data refreshed successfully")
     } catch (error) {
-      console.error("Error fetching data from Firebase:", error)
+      console.error("Error refreshing data:", error)
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 1000)
     }
-    setIsRefreshing(false)
+  }
+
+  // Export function
+  const handleExport = async () => {
+    try {
+      const response = await axios.post(
+        "http://localhost:3000/generate-annual-report",
+        {
+          year,
+        },
+        { responseType: "blob" },
+      )
+
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement("a")
+      link.href = url
+      link.setAttribute("download", `annual-report-${year}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (error) {
+      console.error("Error exporting report:", error)
+      alert("Failed to export report.")
+    }
   }
 
   // Helper functions for status indicators
@@ -363,76 +511,74 @@ function EnergyAuditDashboard() {
     labels: ["Week 1", "Week 2", "Week 3", "Week 4"],
     datasets: [
       {
-        label: "Power",
+        label: "Power (W/10)",
         data: [
-          weeklyAverageOfPowerData?.week1?.Power / 100 || 0,
-          weeklyAverageOfPowerData?.week2?.Power / 100 || 0,
-          weeklyAverageOfPowerData?.week3?.Power / 100 || 0,
-          weeklyAverageOfPowerData?.week4?.Power / 100 || 0,
+          weeklyData.week1?.Power / 10 || 0,
+          weeklyData.week2?.Power / 10 || 0,
+          weeklyData.week3?.Power / 10 || 0,
+          weeklyData.week4?.Power / 10 || 0,
         ],
-        backgroundColor: "#FFD700",
+        backgroundColor: "rgba(255, 215, 0, 0.8)",
+        borderColor: "rgba(255, 215, 0, 1)",
+        borderWidth: 1,
       },
       {
-        label: "Humidity",
+        label: "Humidity (%)",
         data: [
-          weeklyAverageOfEachMonth?.week1?.Humidity || 0,
-          weeklyAverageOfEachMonth?.week2?.Humidity || 0,
-          weeklyAverageOfEachMonth?.week3?.Humidity || 0,
-          weeklyAverageOfEachMonth?.week4?.Humidity || 0,
+          weeklyData.week1?.Humidity || 0,
+          weeklyData.week2?.Humidity || 0,
+          weeklyData.week3?.Humidity || 0,
+          weeklyData.week4?.Humidity || 0,
         ],
-        backgroundColor: "#DC143C",
+        backgroundColor: "rgba(220, 20, 60, 0.8)",
+        borderColor: "rgba(220, 20, 60, 1)",
+        borderWidth: 1,
       },
       {
-        label: "Temperature",
+        label: "Temperature (°C)",
         data: [
-          weeklyAverageOfEachMonth?.week1?.Temperature || 0,
-          weeklyAverageOfEachMonth?.week2?.Temperature || 0,
-          weeklyAverageOfEachMonth?.week3?.Temperature || 0,
-          weeklyAverageOfEachMonth?.week4?.Temperature || 0,
+          weeklyData.week1?.Temperature || 0,
+          weeklyData.week2?.Temperature || 0,
+          weeklyData.week3?.Temperature || 0,
+          weeklyData.week4?.Temperature || 0,
         ],
-        backgroundColor: "#4169E1",
+        backgroundColor: "rgba(65, 105, 225, 0.8)",
+        borderColor: "rgba(65, 105, 225, 1)",
+        borderWidth: 1,
       },
     ],
   }
 
-  // Line Chart
   const lineData = {
-    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"],
+    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
     datasets: [
       {
-        label: "Power",
-        data:
-          monthlyAverageOfPowerData && typeof monthlyAverageOfPowerData === "object"
-            ? Object.values(monthlyAverageOfPowerData).map((item) => item.Power / 100)
-            : [],
+        label: "Power (W/10)",
+        data: Object.values(monthlyData).map((item) => item.Power / 10),
         borderColor: "#1E90FF",
-        fill: false,
+        backgroundColor: "rgba(30, 144, 255, 0.1)",
+        fill: true,
         tension: 0.4,
       },
       {
-        label: "Temperature",
-        data:
-          monthlyAveragesOfEachMonth && typeof monthlyAveragesOfEachMonth === "object"
-            ? Object.values(monthlyAveragesOfEachMonth).map((item) => item.Temperature)
-            : [],
+        label: "Temperature (°C)",
+        data: Object.values(monthlyData).map((item) => item.Temperature),
         borderColor: "#DC253C",
-        fill: false,
+        backgroundColor: "rgba(220, 37, 60, 0.1)",
+        fill: true,
         tension: 0.4,
       },
       {
-        label: "Humidity",
-        data:
-          monthlyAveragesOfEachMonth && typeof monthlyAveragesOfEachMonth === "object"
-            ? Object.values(monthlyAveragesOfEachMonth).map((item) => item.Humidity)
-            : [],
+        label: "Humidity (%)",
+        data: Object.values(monthlyData).map((item) => item.Humidity),
         borderColor: "#0000FF",
-        fill: false,
+        backgroundColor: "rgba(0, 0, 255, 0.1)",
+        fill: true,
         tension: 0.4,
       },
     ],
   }
 
-  // Chart options
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -443,45 +589,34 @@ function EnergyAuditDashboard() {
       tooltip: {
         mode: "index",
         intersect: false,
+        callbacks: {
+          label: (context) => {
+            let label = context.dataset.label || ""
+            if (label) {
+              label += ": "
+            }
+            if (context.parsed.y !== null) {
+              label += context.parsed.y.toFixed(2)
+            }
+            return label
+          },
+        },
       },
     },
     scales: {
       y: {
         beginAtZero: true,
+        grid: {
+          color: "rgba(0, 0, 0, 0.1)",
+        },
+      },
+      x: {
+        grid: {
+          color: "rgba(0, 0, 0, 0.1)",
+        },
       },
     },
   }
-
-  const handleExport = async () => {
-    try {
-      const response = await axios.post("http://localhost:3000/generate-annual-report", {
-        year,
-      }, { responseType: "blob" }); // If your backend returns a file
-
-      // Download the file if backend returns a file (e.g., PDF, CSV)
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `annual-report-${year}.pdf`); // Change extension if needed
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      console.error("Error exporting report:", error);
-      alert("Failed to export report.");
-    }
-  };
-
-  const generateAndDownloadReport = async (year) => {
-    // 1. Generate the report
-    await fetch("http://localhost:3000/generate-annual-report", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ year }), // send year if your backend expects it
-    });
-    // 2. Download the report
-    window.open(`http://localhost:3000/download-report/${year}`, "_blank");
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 font-sans">
@@ -506,13 +641,17 @@ function EnergyAuditDashboard() {
             <div className="flex items-center space-x-4">
               <button
                 onClick={handleRefresh}
-                disabled={isRefreshing}
+                disabled={isRefreshing || dataLoading}
                 className={`flex items-center space-x-2 px-3 py-1.5 text-sm border border-gray-300 rounded-md shadow-sm ${
-                  isRefreshing ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"
+                  isRefreshing || dataLoading ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"
                 }`}
               >
-                <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-                <span>Refresh</span>
+                {isRefreshing || dataLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                <span>{dataLoading ? "Loading..." : "Refresh"}</span>
               </button>
 
               <button
@@ -538,26 +677,32 @@ function EnergyAuditDashboard() {
       <div className="container mx-auto px-6 py-8">
         {/* Real-time Status Banner */}
         <div className="mb-8">
-          <div className="border-0 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg shadow-lg">
+          <div
+            className={`border-0 ${realTimeConnected ? "bg-gradient-to-r from-green-500 to-emerald-600" : "bg-gradient-to-r from-orange-500 to-red-600"} text-white rounded-lg shadow-lg`}
+          >
             <div className="p-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <div className="relative">
-                    <div className="w-4 h-4 bg-white rounded-full"></div>
-                    <div className="absolute inset-0 w-4 h-4 bg-white rounded-full animate-ping"></div>
+                    <div className={`w-4 h-4 ${realTimeConnected ? "bg-white" : "bg-yellow-200"} rounded-full`}></div>
+                    <div
+                      className={`absolute inset-0 w-4 h-4 ${realTimeConnected ? "bg-white" : "bg-yellow-200"} rounded-full animate-ping`}
+                    ></div>
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold">System Online</h2>
-                    <p className="text-green-100">
+                    <h2 className="text-xl font-semibold">
+                      {realTimeConnected ? "System Online - Real-time" : "Connecting to Real-time Data..."}
+                    </h2>
+                    <p className={`${realTimeConnected ? "text-green-100" : "text-orange-100"}`}>
                       Last updated:{" "}
                       {environmentalData[0]?.Timestamp
                         ? new Date(environmentalData[0]?.Timestamp).toLocaleString()
-                        : new Date().toLocaleString()}
+                        : "Connecting..."}
                     </p>
                   </div>
                 </div>
                 <div className="bg-white/20 text-white border border-white/30 px-2 py-1 rounded-md text-xs font-medium">
-                  Live Data
+                  {realTimeConnected ? "Live Data - Firebase" : "Reconnecting..."}
                 </div>
               </div>
             </div>
@@ -576,12 +721,12 @@ function EnergyAuditDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className={`text-3xl font-bold ${getStatusColor(temperature[0], "temperature")}`}>
-                    {temperature[0]?.toFixed(1)}°C
+                    {temperature[0]?.toFixed(1) || "0.0"}°C
                   </div>
                   <div className="w-full bg-blue-200 rounded-full h-2 mt-2">
                     <div
-                      className="bg-blue-600 h-2 rounded-full"
-                      style={{ width: `${(temperature[0] / 40) * 100}%` }}
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min((temperature[0] / 40) * 100, 100)}%` }}
                     ></div>
                   </div>
                 </div>
@@ -600,10 +745,13 @@ function EnergyAuditDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className={`text-3xl font-bold ${getStatusColor(humidity[0], "humidity")}`}>
-                    {humidity[0]?.toFixed(1)}%
+                    {humidity[0]?.toFixed(1) || "0.0"}%
                   </div>
                   <div className="w-full bg-red-200 rounded-full h-2 mt-2">
-                    <div className="bg-red-600 h-2 rounded-full" style={{ width: `${humidity[0]}%` }}></div>
+                    <div
+                      className="bg-red-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(humidity[0], 100)}%` }}
+                    ></div>
                   </div>
                 </div>
                 {getStatusIcon(humidity[0], "humidity")}
@@ -620,12 +768,12 @@ function EnergyAuditDashboard() {
             <div className="p-4 pt-0">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-3xl font-bold text-yellow-600">{lightIntensity[0]?.toFixed(0)}</div>
+                  <div className="text-3xl font-bold text-yellow-600">{lightIntensity[0]?.toFixed(0) || "0"}</div>
                   <p className="text-sm text-yellow-700">LUX</p>
                   <div className="w-full bg-yellow-200 rounded-full h-2 mt-2">
                     <div
-                      className="bg-yellow-600 h-2 rounded-full"
-                      style={{ width: `${(lightIntensity[0] / 1000) * 100}%` }}
+                      className="bg-yellow-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min((lightIntensity[0] / 1000) * 100, 100)}%` }}
                     ></div>
                   </div>
                 </div>
@@ -644,13 +792,13 @@ function EnergyAuditDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className={`text-3xl font-bold ${getStatusColor(power[0], "power")}`}>
-                    {power[0]?.toFixed(1)}
+                    {power[0]?.toFixed(1) || "0.0"}
                   </div>
                   <p className="text-sm text-green-700">Watts</p>
                   <div className="w-full bg-green-200 rounded-full h-2 mt-2">
                     <div
-                      className="bg-green-600 h-2 rounded-full"
-                      style={{ width: `${(power[0] / 200) * 100}%` }}
+                      className="bg-green-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min((power[0] / 200) * 100, 100)}%` }}
                     ></div>
                   </div>
                 </div>
@@ -699,10 +847,10 @@ function EnergyAuditDashboard() {
               <select
                 className="border border-gray-300 rounded-md p-2 shadow-sm"
                 value={year}
-                onChange={(e) => setYear(e.target.value)}
+                onChange={(e) => setYear(Number.parseInt(e.target.value))}
               >
                 <option value="">Select Year</option>
-                 <option value="2025">2025</option>
+                <option value="2025">2025</option>
                 <option value="2024">2024</option>
                 <option value="2023">2023</option>
                 <option value="2022">2022</option>
@@ -712,7 +860,7 @@ function EnergyAuditDashboard() {
               <select
                 className="border border-gray-300 rounded-md p-2 shadow-sm"
                 value={month}
-                onChange={(e) => setMonth(e.target.value)}
+                onChange={(e) => setMonth(Number.parseInt(e.target.value))}
               >
                 <option value="">Select Month</option>
                 <option value="1">January</option>
@@ -735,13 +883,23 @@ function EnergyAuditDashboard() {
           {activeTab === "weekly" && (
             <div className="border-0 shadow-lg bg-white rounded-lg">
               <div className="p-4">
-                <div className="flex items-center space-x-2">
-                  <BarChart3 className="h-5 w-5" />
-                  <span className="text-lg font-semibold">
-                    Weekly Energy Report - {month}/{year}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <BarChart3 className="h-5 w-5" />
+                    <span className="text-lg font-semibold">
+                      Weekly Energy Report - {month}/{year}
+                    </span>
+                  </div>
+                  {dataLoading && (
+                    <div className="flex items-center space-x-2 text-blue-600">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="text-sm">Loading data...</span>
+                    </div>
+                  )}
                 </div>
-                <p className="text-sm text-gray-500 mt-1">Power consumption and environmental conditions by week</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Power consumption and environmental conditions by week 
+                </p>
               </div>
               <div className="p-4 pt-0">
                 <div className="h-80 w-full">
@@ -755,12 +913,20 @@ function EnergyAuditDashboard() {
           {activeTab === "monthly" && (
             <div className="border-0 shadow-lg bg-white rounded-lg">
               <div className="p-4">
-                <div className="flex items-center space-x-2">
-                  <LineChart className="h-5 w-5" />
-                  <span className="text-lg font-semibold">Annual Energy Trends</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <LineChart className="h-5 w-5" />
+                    <span className="text-lg font-semibold">Annual Energy Trends - {year}</span>
+                  </div>
+                  {dataLoading && (
+                    <div className="flex items-center space-x-2 text-blue-600">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="text-sm">Processing historical data...</span>
+                    </div>
+                  )}
                 </div>
                 <p className="text-sm text-gray-500 mt-1">
-                  Monthly averages for power consumption and environmental metrics
+                  Monthly averages for power consumption and environmental metrics 
                 </p>
               </div>
               <div className="p-4 pt-0">
@@ -777,35 +943,46 @@ function EnergyAuditDashboard() {
               <div className="border-0 shadow-lg bg-white rounded-lg">
                 <div className="p-4">
                   <div className="text-lg font-semibold">Energy Efficiency Score</div>
-                  <p className="text-sm text-gray-500">Based on current consumption patterns (last 30 days)</p>
+                  <p className="text-sm text-gray-500">Based on last 30 days </p>
                 </div>
                 <div className="p-4 pt-0">
                   <div className="text-center">
                     {analyticsData.isLoading ? (
                       <div className="flex items-center justify-center py-8">
-                        <RefreshCw className="h-6 w-6 animate-spin text-blue-500" />
+                        <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
                         <span className="ml-2 text-gray-500">Analyzing data...</span>
                       </div>
                     ) : (
                       <>
-                        <div className={`text-4xl font-bold mb-2 ${
-                          analyticsData.efficiencyScore >= 80 ? 'text-green-600' :
-                          analyticsData.efficiencyScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-                        }`}>
+                        <div
+                          className={`text-4xl font-bold mb-2 ${
+                            analyticsData.efficiencyScore >= 80
+                              ? "text-green-600"
+                              : analyticsData.efficiencyScore >= 60
+                                ? "text-yellow-600"
+                                : "text-red-600"
+                          }`}
+                        >
                           {analyticsData.efficiencyScore}%
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-                          <div 
-                            className={`h-3 rounded-full ${
-                              analyticsData.efficiencyScore >= 80 ? 'bg-green-600' :
-                              analyticsData.efficiencyScore >= 60 ? 'bg-yellow-600' : 'bg-red-600'
+                          <div
+                            className={`h-3 rounded-full transition-all duration-1000 ${
+                              analyticsData.efficiencyScore >= 80
+                                ? "bg-green-600"
+                                : analyticsData.efficiencyScore >= 60
+                                  ? "bg-yellow-600"
+                                  : "bg-red-600"
                             }`}
                             style={{ width: `${analyticsData.efficiencyScore}%` }}
                           ></div>
                         </div>
                         <p className="text-sm text-gray-600">
-                          {analyticsData.efficiencyScore >= 80 ? 'Excellent efficiency rating' :
-                           analyticsData.efficiencyScore >= 60 ? 'Good efficiency rating' : 'Needs improvement'}
+                          {analyticsData.efficiencyScore >= 80
+                            ? "Excellent efficiency rating"
+                            : analyticsData.efficiencyScore >= 60
+                              ? "Good efficiency rating"
+                              : "Needs improvement"}
                         </p>
                       </>
                     )}
@@ -821,7 +998,7 @@ function EnergyAuditDashboard() {
                 <div className="p-4 pt-0">
                   {analyticsData.isLoading ? (
                     <div className="flex items-center justify-center py-8">
-                      <RefreshCw className="h-6 w-6 animate-spin text-blue-500" />
+                      <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
                       <span className="ml-2 text-gray-500">Calculating impact...</span>
                     </div>
                   ) : (
@@ -840,7 +1017,7 @@ function EnergyAuditDashboard() {
                       </div>
                       <div className="mt-4 p-3 bg-blue-50 rounded-lg">
                         <p className="text-xs text-blue-700">
-                          * Calculated based on {analyticsData.powerDataCount} power readings and {analyticsData.envDataCount} environmental readings from the last 30 days
+                          * Based on {analyticsData.powerDataCount} data points
                         </p>
                       </div>
                     </div>
@@ -848,16 +1025,16 @@ function EnergyAuditDashboard() {
                 </div>
               </div>
 
-              {/* Additional Analytics Cards */}
+              {/* Current Averages Card */}
               <div className="border-0 shadow-lg bg-white rounded-lg">
                 <div className="p-4">
-                  <div className="text-lg font-semibold">Current Averages</div>
-                  <p className="text-sm text-gray-500">30-day rolling averages</p>
+                  <div className="text-lg font-semibold">30-Day Averages</div>
+                  <p className="text-sm text-gray-500">Based on last 30 days </p>
                 </div>
                 <div className="p-4 pt-0">
                   {analyticsData.isLoading ? (
                     <div className="flex items-center justify-center py-4">
-                      <RefreshCw className="h-4 w-4 animate-spin text-blue-500" />
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -866,73 +1043,57 @@ function EnergyAuditDashboard() {
                           <Thermometer className="h-4 w-4 mr-1 text-blue-500" />
                           Avg Temperature
                         </span>
-                        <span className="font-semibold">{analyticsData.avgTemp || 'N/A'}°C</span>
+                        <span className="font-semibold">{analyticsData.avgTemp}°C</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm flex items-center">
                           <Droplets className="h-4 w-4 mr-1 text-red-500" />
                           Avg Humidity
                         </span>
-                        <span className="font-semibold">{analyticsData.avgHumidity || 'N/A'}%</span>
+                        <span className="font-semibold">{analyticsData.avgHumidity}%</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm flex items-center">
                           <Zap className="h-4 w-4 mr-1 text-green-500" />
                           Avg Power
                         </span>
-                        <span className="font-semibold">{analyticsData.avgPower || 'N/A'}W</span>
+                        <span className="font-semibold">{analyticsData.avgPower}W</span>
                       </div>
                     </div>
                   )}
                 </div>
               </div>
 
+              {/* Data Collection Status */}
               <div className="border-0 shadow-lg bg-white rounded-lg">
                 <div className="p-4">
-                  <div className="text-lg font-semibold">Performance Insights</div>
-                  <p className="text-sm text-gray-500">AI-powered recommendations</p>
+                  <div className="text-lg font-semibold">Data Collection Status</div>
+                  <p className="text-sm text-gray-500">Firebase collection monitoring</p>
                 </div>
                 <div className="p-4 pt-0">
-                  <div className="space-y-3">
-                    {analyticsData.efficiencyScore < 60 && (
-                      <div className="flex items-start space-x-2 p-2 bg-red-50 rounded-lg">
-                        <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-red-800">High Energy Usage Detected</p>
-                          <p className="text-xs text-red-600">Consider adjusting temperature settings or checking for energy-hungry devices.</p>
-                        </div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Real-time Collection</span>
+                      <div className="flex items-center space-x-2">
+                        <div
+                          className={`w-2 h-2 ${realTimeConnected ? "bg-green-500 animate-pulse" : "bg-red-500"} rounded-full`}
+                        ></div>
+                        <span className={`font-semibold ${realTimeConnected ? "text-green-600" : "text-red-600"}`}>
+                          {realTimeConnected ? "Connected" : "Disconnected"}
+                        </span>
                       </div>
-                    )}
-                    
-                    {(temperature[0] < 18 || temperature[0] > 26) && (
-                      <div className="flex items-start space-x-2 p-2 bg-yellow-50 rounded-lg">
-                        <Thermometer className="h-4 w-4 text-yellow-500 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-yellow-800">Temperature Optimization</p>
-                          <p className="text-xs text-yellow-600">Current temperature is outside optimal range (20-24°C).</p>
-                        </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Historical Collection</span>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        <span className="font-semibold text-blue-600">Every2Second</span>
                       </div>
-                    )}
-                    
-                    {(humidity[0] < 40 || humidity[0] > 60) && (
-                      <div className="flex items-start space-x-2 p-2 bg-blue-50 rounded-lg">
-                        <Droplets className="h-4 w-4 text-blue-500 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-blue-800">Humidity Management</p>
-                          <p className="text-xs text-blue-600">Consider using a humidifier/dehumidifier for optimal comfort.</p>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {analyticsData.efficiencyScore >= 80 && (
-                      <div className="flex items-start space-x-2 p-2 bg-green-50 rounded-lg">
-                        <CheckCircle className="h-4 w-4 text-green-500 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-green-800">Excellent Performance!</p>
-                          <p className="text-xs text-green-600">Your energy usage is optimized. Keep up the great work!</p>
-                        </div>
-                      </div>
-                    )}
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Data Points (30 days)</span>
+                      <span className="font-semibold text-gray-600">{analyticsData.powerDataCount}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -967,7 +1128,7 @@ function EnergyAuditDashboard() {
                 </button>
               </div>
               <p className="text-gray-600 mb-6">
-                Best practices for optimal energy consumption and environmental conditions
+                Best practices for optimal energy consumption and environmental conditions based on real-time monitoring
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -978,6 +1139,7 @@ function EnergyAuditDashboard() {
                   </div>
                   <ul className="text-sm space-y-1 text-gray-600">
                     <li>• Maintain 20-24°C for optimal comfort</li>
+                    <li>• Current: {temperature[0]?.toFixed(1) || "0.0"}°C</li>
                     <li>• Avoid extreme temperature fluctuations</li>
                     <li>• Use programmable thermostats</li>
                   </ul>
@@ -990,6 +1152,7 @@ function EnergyAuditDashboard() {
                   </div>
                   <ul className="text-sm space-y-1 text-gray-600">
                     <li>• Keep humidity between 40-60%</li>
+                    <li>• Current: {humidity[0]?.toFixed(1) || "0.0"}%</li>
                     <li>• Prevent mold growth and discomfort</li>
                     <li>• Use dehumidifiers when necessary</li>
                   </ul>
@@ -1002,6 +1165,7 @@ function EnergyAuditDashboard() {
                   </div>
                   <ul className="text-sm space-y-1 text-gray-600">
                     <li>• Use natural light when possible</li>
+                    <li>• Current: {lightIntensity[0]?.toFixed(0) || "0"} LUX</li>
                     <li>• Install LED bulbs for efficiency</li>
                     <li>• Implement motion sensors</li>
                   </ul>
@@ -1014,6 +1178,7 @@ function EnergyAuditDashboard() {
                   </div>
                   <ul className="text-sm space-y-1 text-gray-600">
                     <li>• Monitor consumption regularly</li>
+                    <li>• Current: {power[0]?.toFixed(1) || "0.0"} W</li>
                     <li>• Identify energy-hungry devices</li>
                     <li>• Schedule high-power activities</li>
                   </ul>
@@ -1021,12 +1186,13 @@ function EnergyAuditDashboard() {
               </div>
 
               <div className="bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-green-800 mb-2">💡 Pro Tips</h4>
+                <h4 className="font-semibold text-green-800 mb-2">💡 Data-Driven Insights</h4>
                 <ul className="text-sm text-green-700 space-y-1">
-                  <li>• Set up automated alerts for unusual consumption patterns</li>
-                  <li>• Regular maintenance of HVAC systems improves efficiency</li>
-                  <li>• Consider smart plugs for better device monitoring</li>
-                  <li>• Review energy reports monthly to identify trends</li>
+                  <li>• Real-time monitoring from collection1 provides instant feedback</li>
+                  <li>• Historical analysis from Every2Second shows trends and patterns</li>
+                  <li>• Weekly reports help identify consumption patterns</li>
+                  <li>• Monthly trends reveal seasonal variations</li>
+                  <li>• Set up alerts for threshold breaches to prevent waste</li>
                 </ul>
               </div>
 
@@ -1046,31 +1212,4 @@ function EnergyAuditDashboard() {
   )
 }
 
-function DashboardAverages() {
-  const [weeklyAverageOfPowerData, setWeeklyAverageOfPowerData] = useState({});
-  const [weeklyAverageOfEachMonth, setWeeklyAverageOfEachMonth] = useState({});
-  const [monthlyAverageOfPowerData, setMonthlyAverageOfPowerData] = useState({});
-  const [monthlyAveragesOfEachMonth, setMonthlyAveragesOfEachMonth] = useState({});
-
-  useEffect(() => {
-    // Fetch weekly averages
-    axios.get("http://localhost:3000/weekly-averages")
-      .then(res => {
-        setWeeklyAverageOfPowerData(res.data.power);
-        setWeeklyAverageOfEachMonth(res.data.env);
-      })
-      .catch(console.error);
-
-    // Fetch monthly averages
-    axios.get("http://localhost:3000/monthly-averages")
-      .then(res => {
-        setMonthlyAverageOfPowerData(res.data.power);
-        setMonthlyAveragesOfEachMonth(res.data.env);
-      })
-      .catch(console.error);
-  }, []);
-
-  // ...render your dashboard using the above state variables
-}
-
-export default EnergyAuditDashboard;
+export default EnergyAuditDashboard
