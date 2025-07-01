@@ -5,14 +5,13 @@ const { getAuth } = require("firebase/auth");
 
 // Your web app's Firebase configuration from .env
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  databaseURL: process.env.FIREBASE_DATABASE_URL,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID,
-  measurementId: process.env.FIREBASE_MEASUREMENT_ID,
+  apiKey: "AIzaSyBf5EI1geqj3-OVyFW_SwsNwNb5uaKzdxw",
+  authDomain: "creative-design-ii.firebaseapp.com",
+  projectId: "creative-design-ii",
+  storageBucket: "creative-design-ii.firebasestorage.app",
+  messagingSenderId: "1001371224203",
+  appId: "1:1001371224203:web:f9f7ef76ed187f7611ac8e",
+  measurementId: "G-LSZJ31Q9YK"
 };
 
 // Initialize Firebase
@@ -20,4 +19,4 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-module.exports = { db, auth };
+module.exports = { app, db, auth };

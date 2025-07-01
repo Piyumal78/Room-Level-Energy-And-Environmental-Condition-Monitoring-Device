@@ -1,22 +1,52 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const { generateAnnualReport } = require("../services/generateReport");
+
 const router = express.Router();
-const { generateAnnualReport } = require("../src/reports/index");
 
-// Route to trigger annual report generation
-router.get("/generate-annual-report", async (req, res) => {
+router.get("/report/:year", async (req, res) => {
   try {
-    const report = await generateAnnualReport();
-    res.status(200).json({ message: "Annual report generated successfully", report });
-  } catch (error) {
-    console.error("Error generating annual report: ", error);
-    res.status(500).send("Error generating annual report: " + error.message);
-  }
-});
+    const year = parseInt(req.params.year);
+    if (isNaN(year) || year < 2020 || year > new Date().getFullYear()) {
+      return res.status(400).json({ error: "Invalid year format" });
+    }
 
-// Route to retrieve the generated annual report (if stored)
-router.get("/annual-report", async (req, res) => {
-  // Logic to retrieve the stored annual report can be added here
-  res.status(200).send("Annual report retrieval logic not implemented yet.");
+    console.log(`Generating annual report for year: ${year}`);
+    const result = await generateAnnualReport(year);
+    
+    // Extract filePath from the result object
+    const filePath = result.filePath || result;
+    
+    console.log(`Generated report file path: ${filePath}`);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      console.error(`Generated file not found: ${filePath}`);
+      return res.status(500).json({ error: "Report file not found after generation" });
+    }
+
+    // Set proper headers for PDF download
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="annual_report_${year}.pdf"`);
+
+    // Download the file
+    res.download(filePath, `annual_report_${year}.pdf`, (err) => {
+      if (err) {
+        console.error("Download error:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Error sending report" });
+        }
+      } else {
+        console.log(`Report for ${year} downloaded successfully`);
+      }
+    });
+  } catch (error) {
+    console.error("Report generation error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to generate report", details: error.message });
+    }
+  }
 });
 
 module.exports = router;

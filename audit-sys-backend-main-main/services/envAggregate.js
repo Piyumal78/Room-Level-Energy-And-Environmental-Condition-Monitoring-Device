@@ -34,37 +34,51 @@ const fetchData = async () => {
   }
 };
 
-// Function to fetch environmental data from the database
+// Function to fetch environmental data from collection1
 async function fetchEnvironmentalData(year) {
-  const envCollection = collection(db, "testbymonth");
+  const envCollection = collection(db, "collection1"); // Updated to collection1
   const snapshot = await getDocs(envCollection);
 
   const data = snapshot.docs
     .map((doc) => doc.data())
     .filter((event) => {
-      const eventDate = new Date(event.Timestamp);
+      // Handle both timestamp formats
+      const timestamp = event.timestamp || event.Timestamp;
+      if (!timestamp) return false;
+      
+      const eventDate = new Date(timestamp);
       return eventDate.getFullYear() === year;
     });
 
   return data;
 }
 
-// Function to aggregate energy data
+// Function to aggregate energy data from Every2Seconds collection
 async function fetchEnergyData(year) {
-  const powerCollection = collection(db, "powerData");
+  const powerCollection = collection(db, "Every2Seconds"); // Updated to Every2Seconds
   const snapshot = await getDocs(powerCollection);
 
   const data = snapshot.docs
     .map((doc) => doc.data())
     .filter((event) => {
-      const eventDate = new Date(event.createdAt.toDate());
+      // Handle both timestamp formats
+      const timestamp = event.Timestamp || event.timestamp || event.createdAt;
+      if (!timestamp) return false;
+      
+      let eventDate;
+      if (timestamp.toDate) {
+        eventDate = timestamp.toDate(); // Firestore timestamp
+      } else {
+        eventDate = new Date(timestamp); // ISO string or regular date
+      }
+      
       return eventDate.getFullYear() === year;
     });
 
   return data;
 }
 
-// Function to calculate totals and averages
+// Function to calculate totals and averages with field name flexibility
 function calculateTotalsAndAverages(data) {
   const totals = {
     Light: 0,
@@ -74,9 +88,10 @@ function calculateTotalsAndAverages(data) {
   };
 
   data.forEach((event) => {
-    totals.Light += event.Light || 0;
-    totals.Humidity += event.Humidity || 0;
-    totals.Temperature += event.Temperature || 0;
+    // Handle both capitalized and lowercase field names
+    totals.Light += event.Light || event.light || event.lux || 0;
+    totals.Humidity += event.Humidity || event.humidity || 0;
+    totals.Temperature += event.Temperature || event.temperature || 0;
     totals.count++;
   });
 
@@ -91,14 +106,7 @@ function calculateTotalsAndAverages(data) {
 
 // Export functions for use in annualReportGenerator.js
 module.exports = {
-  fetchEnvironmentalData,
-  fetchEnergyData,
-  calculateTotalsAndAverages,
-};
-module.exports = fetchData;
-
-// Export functions for use in annualReportGenerator.js
-module.exports = {
+  fetchData,
   fetchEnvironmentalData,
   fetchEnergyData,
   calculateTotalsAndAverages,

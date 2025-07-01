@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useEffect, useState } from "react"
@@ -221,84 +222,161 @@ function EnergyAuditDashboard() {
   }
 
   // Real-time data listener with improved error handling
+  // useEffect(() => {
+  //   let unsubscribe = null
+
+  //   const setupRealTimeListener = async () => {
+  //     try {
+  //       // Try collection2 first
+  //       const collection2Ref = collection(db, "collection2")
+  //       const latestQuery = query(collection2Ref, orderBy("Timestamp", "desc"), limit(1))
+
+  //       unsubscribe = onSnapshot(
+  //         latestQuery,
+  //         (snapshot) => {
+  //           if (!snapshot.empty) {
+  //             const latestData = snapshot.docs[0].data()
+  //             setEnvironmentalData([latestData])
+  //             setHumidity([getFieldValue(latestData, ["Humidity", "humidity", "hum"])])
+  //             setTemperature([getFieldValue(latestData, ["Temperature", "temperature", "temp"])])
+  //             setLightIntensity([getFieldValue(latestData, ["Light", "light", "lightIntensity", "lux"])])
+  //             setPower([getFieldValue(latestData, ["Power", "power", "watt", "watts"])])
+  //             setRealTimeConnected(true)
+  //             console.log("Real-time data updated from collection2:", latestData)
+  //           } else {
+  //             // Fallback to Every2Second collection
+  //             console.log("No data in collection2, trying Every2Second...")
+  //             setupFallbackListener()
+  //           }
+  //         },
+  //         (error) => {
+  //           console.error("Error in collection2 listener:", error)
+  //           setupFallbackListener()
+  //         },
+  //       )
+  //     } catch (error) {
+  //       console.error("Error setting up collection2 listener:", error)
+  //       setupFallbackListener()
+  //     }
+  //   }
+
+  //   const setupFallbackListener = () => {
+  //     try {
+  //       const every2SecondRef = collection(db, "Every2Second")
+  //       const fallbackQuery = query(every2SecondRef, orderBy("timestamp", "desc"), limit(1))
+
+  //       const fallbackUnsubscribe = onSnapshot(
+  //         fallbackQuery,
+  //         (snapshot) => {
+  //           if (!snapshot.empty) {
+  //             const latestData = snapshot.docs[0].data()
+  //             setEnvironmentalData([latestData])
+  //             setHumidity([getFieldValue(latestData, ["Humidity", "humidity", "hum"])])
+  //             setTemperature([getFieldValue(latestData, ["Temperature", "temperature", "temp"])])
+  //             setLightIntensity([getFieldValue(latestData, ["Light", "light", "lightIntensity", "lux"])])
+  //             setPower([getFieldValue(latestData, ["Power", "power", "watt", "watts"])])
+  //             setRealTimeConnected(true)
+  //             console.log("Real-time data updated from Every2Second:", latestData)
+  //           }
+  //         },
+  //         (error) => {
+  //           console.error("Error in Every2Second fallback listener:", error)
+  //           setRealTimeConnected(false)
+  //         },
+  //       )
+
+  //       unsubscribe = fallbackUnsubscribe
+  //     } catch (error) {
+  //       console.error("Error setting up fallback listener:", error)
+  //       setRealTimeConnected(false)
+  //     }
+  //   }
+
+  //   setupRealTimeListener()
+
+  //   return () => {
+  //     if (unsubscribe) {
+  //       unsubscribe()
+  //     }
+  //   }
+  // }, [])
   useEffect(() => {
-    let unsubscribe = null
-
-    const setupRealTimeListener = async () => {
+    async function fetchRealTimeEnvData() {
       try {
-        // Try collection2 first
-        const collection2Ref = collection(db, "collection2")
-        const latestQuery = query(collection2Ref, orderBy("Timestamp", "desc"), limit(1))
+        // reference to collection
+        const environmentalDataCollection = collection(db, "collection2");
+        const powerDataCollection = collection(db, "Every2Seconds");
 
-        unsubscribe = onSnapshot(
-          latestQuery,
-          (snapshot) => {
-            if (!snapshot.empty) {
-              const latestData = snapshot.docs[0].data()
-              setEnvironmentalData([latestData])
-              setHumidity([getFieldValue(latestData, ["Humidity", "humidity", "hum"])])
-              setTemperature([getFieldValue(latestData, ["Temperature", "temperature", "temp"])])
-              setLightIntensity([getFieldValue(latestData, ["Light", "light", "lightIntensity", "lux"])])
-              setPower([getFieldValue(latestData, ["Power", "power", "watt", "watts"])])
-              setRealTimeConnected(true)
-              console.log("Real-time data updated from collection2:", latestData)
+        // latest document
+        const latestEnvDocQuery = query(
+          environmentalDataCollection,
+          orderBy("Timestamp", "desc"),
+          limit(1)
+        );
+
+        const latestPowerDocQuery = query(
+          powerDataCollection,
+          orderBy("Timestamp", "desc"),
+          limit(1)
+        );
+
+        // Set up a real-time listener for environmental data
+        const unsubscribeEnv = onSnapshot(latestEnvDocQuery, (snapshot) => {
+          if (snapshot.docChanges().length > 0) {
+            if (snapshot.empty) {
+              console.log("No matching documents.");
             } else {
-              // Fallback to Every2Second collection
-              console.log("No data in collection2, trying Every2Second...")
-              setupFallbackListener()
+              const envList = snapshot.docs
+                .filter((doc) => doc.exists) // Filter out deleted documents
+                .map((doc) => ({
+                  id: doc.id,
+                  ...doc.data(),
+                }));
+              setEnvironmentalData(envList);
+              // Handle both lowercase and capitalized field names (prioritize lowercase as per actual data)
+              setHumidity(envList.map((user) => 
+                user.humidity || user.Humidity || 0
+              ));
+              setTemperature(envList.map((user) => 
+                user.temperature || user.Temperature || 0
+              ));
+              setLightIntensity(envList.map((user) => 
+                user.lux || user.light || user.Light || 0
+              ));
+              setRealTimeConnected(true);
+              console.log("Fetched environmental document:", envList);
             }
-          },
-          (error) => {
-            console.error("Error in collection2 listener:", error)
-            setupFallbackListener()
-          },
-        )
+          }
+        });
+
+        // Set up a real-time listener for power data
+        const unsubscribePower = onSnapshot(latestPowerDocQuery, (snapshot) => {
+          if (snapshot.empty) {
+            console.log("No matching documents.");
+          } else {
+            const powerList = snapshot.docs
+              .filter((doc) => doc.exists) // Filter out deleted documents
+              .map((doc) => ({
+                id: doc.id,
+                ...doc.data(),
+              }));
+            setPower(powerList.map((user) => user.power || user.Power || 0));
+            // console.log("Fetched power document:", powerList);
+          }
+        });
+
+        // Clean the listeners on component unmount
+        return () => {
+          unsubscribeEnv();
+          unsubscribePower();
+        };
       } catch (error) {
-        console.error("Error setting up collection2 listener:", error)
-        setupFallbackListener()
+        console.error("Error fetching data:", error);
       }
     }
 
-    const setupFallbackListener = () => {
-      try {
-        const every2SecondRef = collection(db, "Every2Second")
-        const fallbackQuery = query(every2SecondRef, orderBy("timestamp", "desc"), limit(1))
-
-        const fallbackUnsubscribe = onSnapshot(
-          fallbackQuery,
-          (snapshot) => {
-            if (!snapshot.empty) {
-              const latestData = snapshot.docs[0].data()
-              setEnvironmentalData([latestData])
-              setHumidity([getFieldValue(latestData, ["Humidity", "humidity", "hum"])])
-              setTemperature([getFieldValue(latestData, ["Temperature", "temperature", "temp"])])
-              setLightIntensity([getFieldValue(latestData, ["Light", "light", "lightIntensity", "lux"])])
-              setPower([getFieldValue(latestData, ["Power", "power", "watt", "watts"])])
-              setRealTimeConnected(true)
-              console.log("Real-time data updated from Every2Second:", latestData)
-            }
-          },
-          (error) => {
-            console.error("Error in Every2Second fallback listener:", error)
-            setRealTimeConnected(false)
-          },
-        )
-
-        unsubscribe = fallbackUnsubscribe
-      } catch (error) {
-        console.error("Error setting up fallback listener:", error)
-        setRealTimeConnected(false)
-      }
-    }
-
-    setupRealTimeListener()
-
-    return () => {
-      if (unsubscribe) {
-        unsubscribe()
-      }
-    }
-  }, [])
+    fetchRealTimeEnvData();
+  }, [humidity, temperature, lightIntensity]);
 
   // Fetch historical data for charts
   useEffect(() => {

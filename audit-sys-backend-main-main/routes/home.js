@@ -1,5 +1,5 @@
 const express = require("express");
-const { db } = require("../firebase");
+const { app, db } = require("../firebase");
 const {
   collection,
   addDoc,
@@ -226,12 +226,23 @@ router.post("/power-data", async (req, res) => {
 //post sample environmental data
 router.post("/environmental-data", async (req, res) => {
   try {
+    // Handle both lowercase and capitalized field names for flexibility
     const data = {
-      Temperature: req.body.Temperature,
-      Humidity: req.body.Humidity,
-      Light: req.body.Light,
-      Timestamp: req.body.Timestamp,
+      Temperature: req.body.Temperature || req.body.temperature || 0,
+      Humidity: req.body.Humidity || req.body.humidity || 0,
+      Light: req.body.Light || req.body.light || req.body.lux || 0,
+      Timestamp: req.body.Timestamp || req.body.timestamp || new Date().toISOString(),
+      // Also keep lowercase versions for consistency with actual data
+      temperature: req.body.temperature || req.body.Temperature || 0,
+      humidity: req.body.humidity || req.body.Humidity || 0,
+      lux: req.body.lux || req.body.light || req.body.Light || 0,
+      timestamp: req.body.timestamp || req.body.Timestamp || new Date().toISOString(),
     };
+
+    console.log('Received environmental data:', {
+      original: req.body,
+      processed: data
+    });
 
     // Check thresholds and send email if exceeded
     let alerts = [];
@@ -245,7 +256,13 @@ router.post("/environmental-data", async (req, res) => {
       await sendAlertEmail(alerts, req.body.email);
     }
 
-    await addDoc(collection(db, "testbymonth"), data);
+    // Save to both collections for compatibility
+    await Promise.all([
+      addDoc(collection(db, "collection1"), data), // For dashboard real-time data
+      addDoc(collection(db, "testbymonth"), data)  // For historical analysis
+    ]);
+    
+    console.log('Environmental data saved to both collection1 and testbymonth');
     res.status(200).send("Document created successfully");
   } catch (error) {
     console.error("Error creating document: ", error);

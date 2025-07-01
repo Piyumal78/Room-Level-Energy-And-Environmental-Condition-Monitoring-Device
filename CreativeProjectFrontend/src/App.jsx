@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom"
 import Login from "./components/Login"
 import EnergyAuditDashboard from "./components/EnergyAuditDashboard"
-import ChatBot from "./components/ChatBot" // adjust the path as needed
+import ChatBot from "./components/Chatbot" // Fixed: Chatbot with lowercase 'b'
 
 function App() {
   return (

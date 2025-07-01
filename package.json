@@ -12,6 +12,9 @@
   "description": "",
   "dependencies": {
     "concurrency": "^0.1.4",
-    "concurrently": "^9.2.0"
+    "concurrently": "^9.2.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "pdfkit": "^0.17.1"
   }
 }
