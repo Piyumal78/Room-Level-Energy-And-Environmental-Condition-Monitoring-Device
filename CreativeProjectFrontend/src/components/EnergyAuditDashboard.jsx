@@ -226,9 +226,9 @@ function EnergyAuditDashboard() {
 
     const setupRealTimeListener = async () => {
       try {
-        // Try collection1 first
-        const collection1Ref = collection(db, "collection1")
-        const latestQuery = query(collection1Ref, orderBy("Timestamp", "desc"), limit(1))
+        // Try collection2 first
+        const collection2Ref = collection(db, "collection2")
+        const latestQuery = query(collection2Ref, orderBy("Timestamp", "desc"), limit(1))
 
         unsubscribe = onSnapshot(
           latestQuery,
@@ -241,20 +241,20 @@ function EnergyAuditDashboard() {
               setLightIntensity([getFieldValue(latestData, ["Light", "light", "lightIntensity", "lux"])])
               setPower([getFieldValue(latestData, ["Power", "power", "watt", "watts"])])
               setRealTimeConnected(true)
-              console.log("Real-time data updated from collection1:", latestData)
+              console.log("Real-time data updated from collection2:", latestData)
             } else {
               // Fallback to Every2Second collection
-              console.log("No data in collection1, trying Every2Second...")
+              console.log("No data in collection2, trying Every2Second...")
               setupFallbackListener()
             }
           },
           (error) => {
-            console.error("Error in collection1 listener:", error)
+            console.error("Error in collection2 listener:", error)
             setupFallbackListener()
           },
         )
       } catch (error) {
-        console.error("Error setting up collection1 listener:", error)
+        console.error("Error setting up collection2 listener:", error)
         setupFallbackListener()
       }
     }
@@ -1188,7 +1188,7 @@ function EnergyAuditDashboard() {
               <div className="bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded-lg">
                 <h4 className="font-semibold text-green-800 mb-2">💡 Data-Driven Insights</h4>
                 <ul className="text-sm text-green-700 space-y-1">
-                  <li>• Real-time monitoring from collection1 provides instant feedback</li>
+                  <li>• Real-time monitoring from collection2 provides instant feedback</li>
                   <li>• Historical analysis from Every2Second shows trends and patterns</li>
                   <li>• Weekly reports help identify consumption patterns</li>
                   <li>• Monthly trends reveal seasonal variations</li>
