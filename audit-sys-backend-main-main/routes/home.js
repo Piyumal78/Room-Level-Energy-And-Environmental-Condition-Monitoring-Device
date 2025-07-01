@@ -16,6 +16,7 @@ const PDFDocument = require('pdfkit');
 const csv = require('csv-parser');
 const { getDatabase, ref, get } = require("firebase/database");
 const { generateAnnualReport } = require('../Report/AnnualReportGenerator');
+const { calculateLast30DaysAnalytics, fetchMonthlyChartData, fetchWeeklyChartData } = require('../services/analyticsService');
 const axios = require('axios');
 
 
@@ -215,7 +216,7 @@ router.post("/power-data", async (req, res) => {
       await sendAlertEmail(alerts, req.body.email);
     }
 
-    await addDoc(collection(db, "powerData"), data);
+    await addDoc(collection(db, "Every2Seconds"), data);
     res.status(200).send("Document created successfully");
   } catch (error) {
     console.error("Error creating document: ", error);
@@ -258,11 +259,11 @@ router.post("/environmental-data", async (req, res) => {
 
     // Save to both collections for compatibility
     await Promise.all([
-      addDoc(collection(db, "collection1"), data), // For dashboard real-time data
-      addDoc(collection(db, "testbymonth"), data)  // For historical analysis
+      addDoc(collection(db, "collection2"), data), // For dashboard real-time data
+      addDoc(collection(db, "collection1"), data)  // For historical analysis
     ]);
     
-    console.log('Environmental data saved to both collection1 and testbymonth');
+    console.log('Environmental data saved to both collection1 and collection1');
     res.status(200).send("Document created successfully");
   } catch (error) {
     console.error("Error creating document: ", error);
@@ -292,7 +293,7 @@ router.get("/events", async (req, res) => {
   const year = req.query.year;
 
   try {
-    const envCollection = collection(db, "testbymonth");
+    const envCollection = collection(db, "collection1");
     const snapshot = await getDocs(envCollection);
 
     const events = snapshot.docs
@@ -429,7 +430,7 @@ router.get("/events", async (req, res) => {
 // New route for weekly averages
 router.get("/weekly-averages", async (req, res) => {
   try {
-    const envCollection = collection(db, "testbymonth");
+    const envCollection = collection(db, "collection1");
     const snapshot = await getDocs(envCollection);
 
     const events = snapshot.docs.map((doc) => doc.data());
@@ -473,7 +474,7 @@ router.get("/weekly-averages", async (req, res) => {
 // New route for monthly averages
 router.get("/monthly-averages", async (req, res) => {
   try {
-    const envCollection = collection(db, "testbymonth");
+    const envCollection = collection(db, "collection1");
     const snapshot = await getDocs(envCollection);
 
     const events = snapshot.docs.map((doc) => doc.data());
@@ -544,6 +545,133 @@ router.get("/data-for-month", async (req, res) => {
   } catch (error) {
     console.error("Error fetching data for month: ", error);
     res.status(500).send("Error fetching data for month: " + error.message);
+  }
+});
+
+// Route to fetch latest data from both collections
+router.get("/latest-data", async (req, res) => {
+  try {
+    console.log("Fetching latest data from collections...");
+    
+    // Fetch latest environmental data from collection2
+    const envCollection = collection(db, "collection2");
+    const envSnapshot = await getDocs(envCollection);
+    
+    let latestEnvData = null;
+    let latestEnvTimestamp = null;
+    
+    envSnapshot.forEach((doc) => {
+      const data = doc.data();
+      // Try different timestamp field names
+      const timestamp = data.timestamp || data.Timestamp || data.createdAt || data.date;
+      
+      if (!latestEnvTimestamp || (timestamp && timestamp > latestEnvTimestamp)) {
+        latestEnvTimestamp = timestamp;
+        latestEnvData = { id: doc.id, ...data };
+      }
+    });
+    
+    // Fetch latest power data from Every2Seconds
+    const powerCollection = collection(db, "Every2Seconds");
+    const powerSnapshot = await getDocs(powerCollection);
+    
+    let latestPowerData = null;
+    let latestPowerTimestamp = null;
+    
+    powerSnapshot.forEach((doc) => {
+      const data = doc.data();
+      // Try different timestamp field names
+      const timestamp = data.Timestamp || data.timestamp || data.createdAt || data.date;
+      
+      if (!latestPowerTimestamp || (timestamp && timestamp > latestPowerTimestamp)) {
+        latestPowerTimestamp = timestamp;
+        latestPowerData = { id: doc.id, ...data };
+      }
+    });
+    
+    console.log("Latest environmental data:", latestEnvData);
+    console.log("Latest power data:", latestPowerData);
+    
+    res.json({
+      success: true,
+      data: {
+        environmental: latestEnvData,
+        power: latestPowerData,
+        timestamp: new Date().toISOString()
+      }
+    });
+    
+  } catch (error) {
+    console.error("Error fetching latest data:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Analytics endpoint for last 30 days data
+router.get("/analytics/last30days", async (req, res) => {
+  try {
+    console.log("Fetching last 30 days analytics...");
+    const analytics = await calculateLast30DaysAnalytics();
+    
+    res.json({
+      success: true,
+      data: analytics,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Error fetching analytics:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch analytics data",
+      details: error.message
+    });
+  }
+});
+
+// Monthly chart data endpoint (last 6 months)
+router.get("/analytics/monthly", async (req, res) => {
+  try {
+    console.log("Fetching monthly chart data...");
+    const monthlyData = await fetchMonthlyChartData();
+    
+    res.json({
+      success: true,
+      data: monthlyData,
+      timestamp: new Date().toISOString(),
+      type: "monthly"
+    });
+  } catch (error) {
+    console.error("Error fetching monthly chart data:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch monthly chart data",
+      details: error.message
+    });
+  }
+});
+
+// Weekly chart data endpoint (last 12 weeks)
+router.get("/analytics/weekly", async (req, res) => {
+  try {
+    console.log("Fetching weekly chart data...");
+    const weeklyData = await fetchWeeklyChartData();
+    
+    res.json({
+      success: true,
+      data: weeklyData,
+      timestamp: new Date().toISOString(),
+      type: "weekly"
+    });
+  } catch (error) {
+    console.error("Error fetching weekly chart data:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch weekly chart data", 
+      details: error.message
+    });
   }
 });
 

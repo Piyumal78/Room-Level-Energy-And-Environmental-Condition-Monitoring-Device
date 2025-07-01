@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 import { collection, query, where, orderBy, limit, onSnapshot, getDocs, Timestamp } from "firebase/firestore"
 import { db } from "../config/firebase"
+import useRealTimeData from "../hooks/useRealTimeData"
 
 function EnergyAuditDashboard() {
   // State for year and month selection
@@ -37,12 +38,16 @@ function EnergyAuditDashboard() {
   const [showPopup, setShowPopup] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  // Real-time data states
-  const [environmentalData, setEnvironmentalData] = useState([])
-  const [humidity, setHumidity] = useState([0])
-  const [temperature, setTemperature] = useState([0])
-  const [lightIntensity, setLightIntensity] = useState([0])
-  const [power, setPower] = useState([0])
+  // Real-time data from custom hook
+  const { 
+    environmentalData, 
+    powerData,
+    humidity, 
+    temperature, 
+    lightIntensity, 
+    power,
+    realTimeConnected 
+  } = useRealTimeData()
 
   // Historical data states
   const [weeklyData, setWeeklyData] = useState({
@@ -69,7 +74,6 @@ function EnergyAuditDashboard() {
 
   // Loading states
   const [dataLoading, setDataLoading] = useState(false)
-  const [realTimeConnected, setRealTimeConnected] = useState(false)
 
   // Analytics data states
   const [analyticsData, setAnalyticsData] = useState({

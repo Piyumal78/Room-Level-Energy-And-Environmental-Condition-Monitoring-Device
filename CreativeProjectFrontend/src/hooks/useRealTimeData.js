@@ -11,7 +11,7 @@ function useRealTimeData() {
   const [realTimeConnected, setRealTimeConnected] = useState(false);
 
   useEffect(() => {
-    const environmentalDataCollection = collection(db, "collection1");
+    const environmentalDataCollection = collection(db, "collection2");
     const powerDataCollection = collection(db, "Every2Seconds");
 
     // Try different timestamp field names for environmental data
